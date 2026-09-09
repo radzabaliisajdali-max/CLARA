@@ -1,0 +1,1 @@
+const INITIAL_PRODUCTS=[{"article": "CLARA-001", "name": "Домашнее платье", "cost": 330, "price": 2500, "discount": 40}, {"article": "CLARA-002", "name": "Сорочка", "cost": 225, "price": 1800, "discount": 40}, {"article": "CLARA-003", "name": "Майка", "cost": 115, "price": 900, "discount": 20}];
