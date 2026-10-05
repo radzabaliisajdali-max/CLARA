@@ -1,3 +1,4 @@
+import { registerProduction, productionQuery } from './production.js';
 import Fastify, { type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import staticFiles from '@fastify/static';
@@ -97,7 +98,7 @@ export async function buildApp(db:DB,options:{origin?:string,secure?:boolean,log
  app.post('/api/v1/products/:id/variants',async req=>{const product=idParam(req),body=variantInput.parse(req.body);return mutate(req,body,async tx=>{const id=randomUUID();await tx.query('INSERT INTO variants(id,product_id,color,size,gtin,cost) VALUES($1,$2,$3,$4,$5,$6)',[id,product,body.color,body.size,body.gtin,body.cost]);await tx.query('INSERT INTO balances(variant_id) VALUES($1)',[id]);await audit(tx,req.user.id,'variant.create',id,null,{productId:product,...body});return {id,...body};});});
  app.patch('/api/v1/variants/:id',async req=>{const id=idParam(req),body=variantInput.parse(req.body);return mutate(req,body,async tx=>{await tx.query('SELECT variant_id FROM balances WHERE variant_id=$1 FOR UPDATE',[id]);const before=(await tx.query('SELECT * FROM variants WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!before)throw new Problem(404,'Вариант не найден');
   // Historical variant identity must remain stable; only cost can change after movements exist.
-  if((before.gtin!==body.gtin||before.color!==body.color||before.size!==body.size)&&(await tx.query('SELECT id FROM movements WHERE variant_id=$1 LIMIT 1',[id])).rowCount)throw new Problem(409,'После движений цвет, размер и GTIN неизменяемы. Создайте новый вариант.');
+  if((before.gtin!==body.gtin||before.color!==body.color||before.size!==body.size)&&(await tx.query('SELECT variant_id FROM movements WHERE variant_id=$1 UNION ALL SELECT variant_id FROM production_plans WHERE variant_id=$1 LIMIT 1',[id])).rowCount)throw new Problem(409,'После движений или планирования цвет, размер и GTIN неизменяемы. Создайте новый вариант.');
   await tx.query('UPDATE variants SET color=$2,size=$3,gtin=$4,cost=$5 WHERE id=$1',[id,body.color,body.size,body.gtin,body.cost]);await audit(tx,req.user.id,'variant.update',id,before,body);return {id,...body};});});
  app.get('/api/v1/gtin/:gtin',async req=>{const gtin=z.string().regex(/^(?:\d{8}|\d{12,14})$/).parse((req.params as any).gtin);const found=(await db.query(inventory+' WHERE v.gtin=$1',[gtin])).rows[0];if(!found)throw new Problem(404,'Неизвестный GTIN. Добавьте вариант в разделе «Товары».');return found;});
  app.get('/api/v1/stock',async()=> (await db.query(inventory+' ORDER BY p.article,v.color,v.size')).rows);
@@ -125,17 +126,18 @@ export async function buildApp(db:DB,options:{origin?:string,secure?:boolean,log
   for(const p of selected){const id=randomUUID();await tx.query('INSERT INTO products(id,article,name,material) VALUES($1,$2,$3,$4)',[id,p.article,p.name,p.material]);await audit(tx,req.user.id,'product.import',id,null,{article:p.article,name:p.name,source:'V4.1'});}
   return {imported:selected.length};});});
  app.get('/api/v1/exports/:kind',async(req,reply)=>{
-  const kind=z.enum(['products','stock','movements']).parse((req.params as any).kind);
-  const query=kind==='movements'?movementQuery+' ORDER BY d.number,m.id':kind==='stock'?inventory+' ORDER BY p.article,v.color,v.size':`SELECT p.article,p.name,p.material,v.color,v.size,v.gtin,v.cost FROM products p LEFT JOIN variants v ON v.product_id=p.id ORDER BY p.article,v.color,v.size`;
+  const kind=z.enum(['products','stock','movements','production']).parse((req.params as any).kind);
+  const query=kind==='production'?productionQuery+' ORDER BY c.number':kind==='movements'?movementQuery+' ORDER BY d.number,m.id':kind==='stock'?inventory+' ORDER BY p.article,v.color,v.size':`SELECT p.article,p.name,p.material,v.color,v.size,v.gtin,v.cost FROM products p LEFT JOIN variants v ON v.product_id=p.id ORDER BY p.article,v.color,v.size`;
   const rows=(await db.query(query)).rows;
-  const keys=kind==='movements'?['number','kind','created_at','author','article','color','size','gtin','physical','reserved','transit','wb','defect','reason','reference']:kind==='stock'?['article','name','color','size','gtin','physical','reserved','available','transit','wb','defect']:['article','name','material','color','size','gtin','cost'];
-  const labels:Record<string,string>={number:'Документ',kind:'Операция',created_at:'Дата UTC',author:'Автор',article:'Артикул',name:'Товар',material:'Материал',color:'Цвет',size:'Размер',gtin:'GTIN',cost:'Себестоимость ₽',physical:'Наш склад',reserved:'Резерв FBS',available:'Доступно',transit:'В пути',wb:'WB',defect:'Брак',reason:'Причина',reference:'Основание'};
+  const keys=kind==='production'?['number','plan_number','article','color','size','gtin','quantity','cut_date','fabric_kg','fabric_per_unit','responsible','cut_remaining','sewing','qc','packing','ready','defect']:kind==='movements'?['number','kind','created_at','author','article','color','size','gtin','physical','reserved','transit','wb','defect','reason','reference']:kind==='stock'?['article','name','color','size','gtin','physical','reserved','available','transit','wb','defect']:['article','name','material','color','size','gtin','cost'];
+  const labels:Record<string,string>={plan_number:'План',quantity:'Выкроено',cut_date:'Дата кроя',fabric_kg:'Ткань кг',fabric_per_unit:'Кг на изделие',responsible:'Ответственный',cut_remaining:'Крой не выдан',sewing:'У швей',qc:'Контроль',packing:'Упаковка',ready:'Принято на склад',number:'Документ',kind:'Операция',created_at:'Дата UTC',author:'Автор',article:'Артикул',name:'Товар',material:'Материал',color:'Цвет',size:'Размер',gtin:'GTIN',cost:'Себестоимость ₽',physical:'Наш склад',reserved:'Резерв FBS',available:'Доступно',transit:'В пути',wb:'WB',defect:'Брак',reason:'Причина',reference:'Основание'};
   const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('CLARA');sheet.columns=keys.map(k=>({header:labels[k],key:k,width:22}));
   for(const row of rows) sheet.addRow(Object.fromEntries(keys.map(k=>[k,row[k] instanceof Date?row[k].toISOString():row[k]??''])));
   sheet.getRow(1).font={bold:true};sheet.views=[{state:'frozen',ySplit:1}];sheet.autoFilter={from:{row:1,column:1},to:{row:1,column:keys.length}};
   const buffer=await book.xlsx.writeBuffer();
   reply.header('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').header('Content-Disposition',`attachment; filename="CLARA-${kind}.xlsx"`);return Buffer.from(buffer);
  });
+ registerProduction(app,db);
  await app.register(staticFiles,{root:resolve('public'),prefix:'/'});
  return app;
 }

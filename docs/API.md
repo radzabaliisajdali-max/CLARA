@@ -56,3 +56,16 @@
 `GET /exports/products`, `/exports/stock`, `/exports/movements` возвращают настоящий XLSX. GTIN и денежные строки сохраняют точность; текст не становится формулами.
 
 `GET /health` вне API доступен без входа и проверяет связь с БД.
+
+## Производство
+
+Все POST требуют стандартные cookie, CSRF и Idempotency-Key. Оператор может создавать производственные записи; отменять их может владелец.
+
+- `GET/POST /production/plans`: `{variantId,quantity,dueDate,comment?}`. Дата `YYYY-MM-DD`, количества целые 1–1000000.
+- `GET/POST /production/cuts`: `{planId,quantity,cutDate,fabricKg,responsible,reason?,comment?}`. fabricKg — положительная десятичная строка с точностью до 3 знаков. Причина нужна при суммарном превышении плана. GET включает `fabric_per_unit` и остатки по этапам.
+- `GET/POST /production/workers`: `{name}`.
+- `GET/POST /production/events`: `{cutId,fromStage,toStage,quantity,workerId?,operationDate,reason?}`. Переходы: cut→sewing, sewing→qc, qc→packing, qc→defect, packing→ready. workerId обязателен только для выдачи и сдачи пошива. Для брака обязательна причина.
+- `POST /production/events/:id/reverse`: `{reason}`, только владелец. Проверяет остаток на этапе назначения. Компенсация не изменяет исходную запись. Связанные складские документы имеют kind=production и отменяются только этим маршрутом.
+- `GET /exports/production`: XLSX партий кроя, расхода ткани и количеств по этапам.
+
+Крои блокируются перед расчётом перехода; планы — перед проверкой суммарного кроя. Календарные даты не преобразуются в UTC timestamps. Время создания сохраняется отдельно. Идентичность варианта фиксируется с первого производственного плана.

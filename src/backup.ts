@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makePool, transaction, type DB } from './db.js';
 import { migrate } from './migrate.js';
-const tables=['users','products','variants','balances','documents','movements','audit_log','idempotency'] as const;
+const tables=['users','products','variants','balances','documents','movements','audit_log','idempotency','production_plans','production_cuts','production_workers','production_events'] as const;
 const jsonColumns:Record<string,string[]>={audit_log:['old_value','new_value'],idempotency:['response']};
 export async function backup(db:DB) {
  return transaction(db,async tx=>{
@@ -24,13 +24,13 @@ export async function restore(db:DB, input:unknown) {
   for(const table of tables){
    const cols=(await tx.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 ORDER BY ordinal_position",[table])).rows.map(r=>r.column_name as string);
    // Reversals reference earlier documents, so restore document sequence order.
-   const rows=table==='documents'?[...dump.data[table]].sort((a,b)=>Number(a.number)-Number(b.number)):dump.data[table];
+   const rows=['documents','production_events'].includes(table)?[...dump.data[table]].sort((a,b)=>Number(a.number)-Number(b.number)):dump.data[table];
    for(const row of rows){if(cols.some(c=>!(c in row)))throw new Error('Missing backup columns: '+table);
     const values=cols.map(c=>jsonColumns[table]?.includes(c)?JSON.stringify(row[c]):row[c]);
     await tx.query(`INSERT INTO ${table} (${cols.map(c=>'"'+c+'"').join(',')}) OVERRIDING SYSTEM VALUE VALUES(${cols.map((_,i)=>'$'+(i+1)).join(',')})`,values);
    }
   }
-  for(const [table,col] of [['documents','number'],['movements','id'],['audit_log','id']])await tx.query(`SELECT setval(pg_get_serial_sequence('${table}','${col}'),COALESCE((SELECT MAX(${col}) FROM ${table}),1),(SELECT COUNT(*)>0 FROM ${table}))`);
+  for(const [table,col] of [['documents','number'],['movements','id'],['audit_log','id'],['production_plans','number'],['production_cuts','number'],['production_events','number']])await tx.query(`SELECT setval(pg_get_serial_sequence('${table}','${col}'),COALESCE((SELECT MAX(${col}) FROM ${table}),1),(SELECT COUNT(*)>0 FROM ${table}))`);
   // Sessions intentionally excluded. Everyone signs in again after recovery.
  });
 }

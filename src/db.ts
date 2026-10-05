@@ -1,4 +1,6 @@
 import pg from 'pg';
+// Calendar dates must not become local-midnight timestamps during JSON backup or API serialization.
+pg.types.setTypeParser(1082, value => value);
 import { randomUUID, createHash } from 'node:crypto';
 export const makePool = (url = process.env.DATABASE_URL) => new pg.Pool({ connectionString: url, max: 12, connectionTimeoutMillis: 10000, idleTimeoutMillis: 30000, statement_timeout: 30000 });
 export type DB = pg.Pool;

@@ -30,6 +30,23 @@ try{
  await page.reload();await page.getByRole('button',{name:'Открыть товары',exact:true}).waitFor();await page.locator('nav [data-page=stock]').click();await page.locator('#stockOperation').waitFor();assert.equal(await row.locator('td').nth(6).textContent(),'15');
  const downloadPromise=page.waitForEvent('download');await page.getByRole('link',{name:'Скачать Excel'}).click();const download=await downloadPromise;assert.match(download.suggestedFilename(),/\.xlsx$/);
  await mkdir('test-results',{recursive:true});await page.screenshot({path:'test-results/warehouse.png',fullPage:true});
+ await page.locator('nav [data-page=production]').click();
+ await page.locator('#prodPlan [name=quantity]').fill('10');await page.locator('#prodPlan [type=submit]').click();
+ await page.locator('#prodCut [name=planId] option').waitFor();
+ await page.locator('#prodCut [name=quantity]').fill('10');await page.locator('#prodCut [name=fabricKg]').fill('3,5');await page.locator('#prodCut [name=responsible]').fill('Закройщик');await page.locator('#prodCut [type=submit]').click();
+ await page.locator('#prodEvent [name=cutId] option').waitFor();
+ await page.locator('#prodWorker [name=name]').fill('Анна');await page.locator('#prodWorker [type=submit]').click();
+ await page.locator('#prodEvent [name=workerId] option').filter({hasText:'Анна'}).waitFor();
+ for(const [transition,n] of [['cut:sewing',10],['sewing:qc',10],['qc:packing',10],['packing:ready',10]] as const){
+  await page.locator('#prodEvent [name=transition]').selectOption(transition);
+  if(transition==='cut:sewing'||transition==='sewing:qc')await page.locator('#prodEvent [name=workerId]').selectOption({label:'Анна'});
+  await page.locator('#prodEvent [name=quantity]').fill(String(n));
+  const response=page.waitForResponse(r=>r.url().endsWith('/production/events')&&r.request().method()==='POST');
+  await page.locator('#prodEvent [type=submit]').click();assert.equal((await response).status(),200);
+  await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('#prodEvent [name=transition]')?.value==='cut:sewing'&&!document.querySelector<HTMLButtonElement>('#prodEvent [type=submit]')?.disabled);
+ }
+ await page.screenshot({path:'test-results/production.png',fullPage:true});
+ await page.locator('nav [data-page=stock]').click();await page.locator('#stockOperation').waitFor();assert.equal(await row.locator('td').nth(4).textContent(),'30');assert.equal(await row.locator('td').nth(6).textContent(),'25');
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/mobile.png',fullPage:true});
- assert.deepEqual(errors,[]);console.log('UI PASS: вход, модель, GTIN, повторный скан, потеря ответа, идемпотентный повтор, резерв, перезагрузка, Excel; ошибок JS нет');
+ assert.deepEqual(errors,[]);console.log('UI PASS: вход, модель, GTIN, повторный скан, потеря ответа, идемпотентный повтор, резерв, перезагрузка, Excel, план → крой → пошив → контроль → упаковка → склад; ошибок JS нет');
 }finally{await context.close();await browser.close();if(app)await app.close();if(env)await env.stop();}

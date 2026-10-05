@@ -93,12 +93,46 @@ test('CLARA: PostgreSQL, права, документы, конкурентно�
   const before=await ok('/stock');await ok('/import/legacy',{indices:[candidate.index]});assert.deepEqual(await ok('/stock'),before);
   assert.equal((await call('/import/legacy',{indices:[candidate.index]})).statusCode,409);
  });
+ await t.test('производство: крой, швеи, контроль, брак, упаковка, конкуренция и отмена',async()=>{
+  const before=await ok('/gtin/'+v.gtin);
+  const p=await ok('/production/plans',{variantId:v.id,quantity:10,dueDate:'2026-10-10'});
+  assert.equal((await call('/production/plans',{variantId:v.id,quantity:1.5,dueDate:'2026-10-10'})).statusCode,400);
+  assert.equal((await call('/production/plans',{variantId:v.id,quantity:1,dueDate:'2026-02-30'})).statusCode,400);
+  const cutBody={planId:p.id,quantity:10,cutDate:'2026-10-05',fabricKg:'3.500',responsible:'Закройщик'};
+  const key=randomUUID();const c=await ok('/production/cuts',cutBody,key);assert.equal((await ok('/production/cuts',cutBody,key)).id,c.id);
+  assert.equal((await call('/production/cuts',cutBody)).statusCode,409);
+  const w=await ok('/production/workers',{name:'Анна'}),w2=await ok('/production/workers',{name:'Ирина'});
+  const event=(fromStage:string,toStage:string,n:number,workerId?:string)=>({cutId:c.id,fromStage,toStage,quantity:n,operationDate:'2026-10-05',...(workerId?{workerId}:{}),...(toStage==='defect'?{reason:'Дефект строчки'}:{})});
+  const results=await Promise.all([call('/production/events',event('cut','sewing',7,w.id)),call('/production/events',event('cut','sewing',7,w2.id))]);
+  assert.deepEqual(results.map(r=>r.statusCode).sort(),[200,409]);
+  const assigned=results.find(r=>r.statusCode===200)!.json();const worker=assigned.worker_id;
+  assert.equal((await call('/production/events',event('sewing','qc',1,worker===w.id?w2.id:w.id))).statusCode,409);
+  const sewn=await ok('/production/events',event('sewing','qc',7,worker));
+  assert.equal((await call('/production/events/'+assigned.id+'/reverse',{reason:'Тест отмены'})).statusCode,409);
+  await ok('/production/events',event('qc','defect',1));
+  await ok('/production/events',event('qc','packing',6));
+  assert.equal((await ok('/gtin/'+v.gtin)).physical,before.physical);
+  const readyKey=randomUUID();const ready=await ok('/production/events',event('packing','ready',6),readyKey);
+  assert.equal((await ok('/production/events',event('packing','ready',6),readyKey)).id,ready.id);
+  assert.equal((await call('/production/events',event('packing','ready',1))).statusCode,409);
+  assert.equal((await call('/documents/'+ready.document_id+'/reverse',{reason:'Нельзя отдельно'})).statusCode,409);
+  let stock=await ok('/gtin/'+v.gtin);assert.equal(stock.physical,before.physical+6);assert.equal(stock.defect,before.defect+1);
+  await ok('/production/events/'+ready.id+'/reverse',{reason:'Вернуть на упаковку'});
+  assert.equal((await call('/production/events/'+ready.id+'/reverse',{reason:'Повторная отмена'})).statusCode,409);
+  stock=await ok('/gtin/'+v.gtin);assert.equal(stock.physical,before.physical);
+  const row=(await ok('/production/cuts')).find((r:any)=>r.id===c.id);assert.equal(row.fabric_per_unit,'0.350000');assert.equal(row.cut_remaining,3);assert.equal(row.packing,6);assert.equal(row.ready,0);assert.equal(row.defect,1);
+  await assert.rejects(env.db.query('DELETE FROM production_events WHERE id=$1',[sewn.id]),/immutable/);
+  assert.deepEqual(await ok('/stock/reconciliation'),[]);
+  const exported=await call('/exports/production');assert.equal(exported.statusCode,200,exported.body);const book=new ExcelJS.Workbook();await book.xlsx.load(exported.rawPayload as any);assert.equal(book.worksheets[0].getRow(2).getCell(9).value,'3.500');
+ });
  await t.test('резервная копия и восстановление в пустую схему PostgreSQL, последовательности и защита от перезаписи',async()=>{
   const dump=await backup(env.db);const name='restore_'+randomUUID().replaceAll('-','');await env.db.query('CREATE SCHEMA '+name);
   const url=new URL(env.url);url.searchParams.set('options','-c search_path='+name);const target=makePool(url.href);
   try{await restore(target,JSON.parse(JSON.stringify(dump)));assert.equal((await target.query('SELECT COUNT(*) FROM movements')).rows[0].count,String(dump.data.movements.length));
    assert.deepEqual((await target.query('SELECT * FROM balances ORDER BY variant_id')).rows,(await env.db.query('SELECT * FROM balances ORDER BY variant_id')).rows);
-   assert.equal((await target.query('SELECT COUNT(*) FROM sessions')).rows[0].count,'0');await assert.rejects(restore(target,dump),/empty database/);
+   assert.equal((await target.query('SELECT COUNT(*) FROM sessions')).rows[0].count,'0');
+   for(const table of ['production_plans','production_cuts','production_workers','production_events'])assert.deepEqual((await target.query('SELECT * FROM '+table+' ORDER BY id')).rows,(await env.db.query('SELECT * FROM '+table+' ORDER BY id')).rows);
+   await assert.rejects(restore(target,dump),/empty database/);
    const next=(await target.query("SELECT nextval(pg_get_serial_sequence('documents','number')) AS n")).rows[0].n;assert.ok(Number(next)>Math.max(...dump.data.documents.map(r=>Number(r.number))));
   }finally{await target.end();await env.db.query('DROP SCHEMA '+name+' CASCADE');}
  });

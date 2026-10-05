@@ -10,7 +10,7 @@ export const documentInput=z.object({
 export const reversalInput=z.object({reason:z.string().trim().min(3).max(1000)}).strict();
 type Delta={variant_id:string,physical:number,reserved:number,transit:number,wb:number,defect:number};
 const buckets=['physical','reserved','transit','wb','defect'] as const;
-async function post(tx: Tx, user: string, kind: string, reason: string, reference: string, deltas: Delta[], reversesId: string|null=null) {
+export async function postStock(tx: Tx, user: string, kind: string, reason: string, reference: string, deltas: Delta[], reversesId: string|null=null) {
  const ids=deltas.map(d=>d.variant_id).sort();
  if(new Set(ids).size!==ids.length) throw new Problem(400,'Объедините повторные строки одного варианта');
  // All operations lock balances in the same order to avoid cross-document deadlocks.
@@ -37,13 +37,14 @@ export async function postDocument(tx: Tx,user:string,kind:'receipt'|'adjustment
   else d[kind==='receipt'?'physical':input.bucket]=l.quantity*(input.direction==='out'?-1:1);
   return d;
  });
- return post(tx,user,kind,input.reason,input.reference,deltas);
+ return postStock(tx,user,kind,input.reason,input.reference,deltas);
 }
 export async function reverseDocument(tx: Tx,user:string,id:string,reason:string) {
  const original=(await tx.query('SELECT * FROM documents WHERE id=$1 FOR UPDATE',[id])).rows[0];
  if(!original) throw new Problem(404,'Документ не найден');
+ if(original.kind==='production') throw new Problem(409,'Отмените операцию в разделе «Производство»');
  if(original.kind==='reversal' || (await tx.query('SELECT id FROM documents WHERE reverses_id=$1',[id])).rowCount) throw new Problem(409,'Документ уже отменён либо сам является отменой');
  const deltas=(await tx.query('SELECT variant_id,physical,reserved,transit,wb,defect FROM movements WHERE document_id=$1',[id])).rows as Delta[];
  for(const d of deltas) for(const b of buckets) d[b]=-d[b];
- return post(tx,user,'reversal',reason,'Отмена №'+original.number,deltas,id);
+ return postStock(tx,user,'reversal',reason,'Отмена №'+original.number,deltas,id);
 }
