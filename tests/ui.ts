@@ -32,11 +32,11 @@ try{
  await mkdir('test-results',{recursive:true});await page.screenshot({path:'test-results/warehouse.png',fullPage:true});
  await page.locator('nav [data-page=production]').click();
  await page.locator('#prodPlan [name=quantity]').fill('10');await page.locator('#prodPlan [type=submit]').click();
- await page.locator('#prodCut [name=planId] option').waitFor();
+ await page.locator('#prodCut [name=planId] option').waitFor({state:'attached'});
  await page.locator('#prodCut [name=quantity]').fill('10');await page.locator('#prodCut [name=fabricKg]').fill('3,5');await page.locator('#prodCut [name=responsible]').fill('Закройщик');await page.locator('#prodCut [type=submit]').click();
- await page.locator('#prodEvent [name=cutId] option').waitFor();
+ await page.locator('#prodEvent [name=cutId] option').waitFor({state:'attached'});
  await page.locator('#prodWorker [name=name]').fill('Анна');await page.locator('#prodWorker [type=submit]').click();
- await page.locator('#prodEvent [name=workerId] option').filter({hasText:'Анна'}).waitFor();
+ await page.locator('#prodEvent [name=workerId] option').filter({hasText:'Анна'}).waitFor({state:'attached'});
  for(const [transition,n] of [['cut:sewing',10],['sewing:qc',10],['qc:packing',10],['packing:ready',10]] as const){
   await page.locator('#prodEvent [name=transition]').selectOption(transition);
   if(transition==='cut:sewing'||transition==='sewing:qc')await page.locator('#prodEvent [name=workerId]').selectOption({label:'Анна'});
