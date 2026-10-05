@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: clara
+      POSTGRES_DB: clara
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - clara-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clara -d clara"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+  app:
+    build: .
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      PGHOST: db
+      PGUSER: clara
+      PGDATABASE: clara
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      OWNER_LOGIN: ${OWNER_LOGIN:-ali}
+      OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD}
+    depends_on:
+      db: {condition: service_healthy}
+    restart: unless-stopped
+volumes:
+  clara-db:
