@@ -9,7 +9,7 @@ if(app)await app.listen({host:'127.0.0.1',port:3008});
 const browser=process.env.CDP_URL?await chromium.connectOverCDP(process.env.CDP_URL):await chromium.launch({headless:true});
 const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});const page=await context.newPage();
 const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
-const navigate=async(name:string)=>{const target=page.locator('nav [data-page='+name+']');if(!await target.isVisible())await page.locator('nav details').filter({has:target}).locator('summary').click();await target.click();};
+const navigate=async(name:string)=>{const target=page.locator('nav [data-page='+name+']');await target.waitFor({state:'attached'});if(!await target.isVisible())await page.locator('nav details').filter({has:page.locator('[data-page='+name+']')}).locator('summary').click();await target.click();};
 const productionTab=async(name:string)=>{await page.locator('[data-production-tab='+name+']').click();};
 const expandForm=async(id:string)=>{const form=page.locator('#'+id);if(!await form.isVisible())await page.locator('details').filter({has:form}).locator('summary').click();};
 try{
@@ -55,3 +55,4 @@ try{
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);console.log('UI PASS: вход, модель, GTIN, повторный скан, потеря ответа, идемпотентный повтор, резерв, перезагрузка, Excel, план → крой → пошив → контроль → упаковка → склад; ошибок JS нет');
 }finally{await context.close();await browser.close();if(app)await app.close();if(env)await env.stop();}
+
