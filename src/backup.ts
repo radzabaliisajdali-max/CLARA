@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makePool, transaction, type DB } from './db.js';
 import { migrate } from './migrate.js';
-const tables=['users','products','variants','balances','documents','movements','audit_log','idempotency','production_plans','production_cuts','production_workers','production_events','wb_snapshots'] as const;
+const tables=['users','products','variants','balances','documents','movements','audit_log','idempotency','production_plans','production_cuts','production_workers','production_events','wb_snapshots','wb_connection'] as const;
 const jsonColumns:Record<string,string[]>={wb_snapshots:['payload'],audit_log:['old_value','new_value'],idempotency:['response']};
 export async function backup(db:DB) {
  return transaction(db,async tx=>{
@@ -38,3 +38,4 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const [operation,path]=process.argv.slice(2);if(!path||!['save','restore'].includes(operation))throw new Error('Usage: node dist/backup.js save|restore <file.json>');
  const db=makePool();try{if(operation==='save'){await mkdir(dirname(path),{recursive:true});await writeFile(path,JSON.stringify(await backup(db)),{flag:'wx',mode:0o600});console.log('Backup saved');}else{await restore(db,JSON.parse(await readFile(path,'utf8')));console.log('Backup restored; sessions invalidated');}}finally{await db.end();}
 }
+

@@ -24,6 +24,8 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       OWNER_LOGIN: ${OWNER_LOGIN:-ali}
+      WB_TOKEN_ENCRYPTION_KEY: ${WB_TOKEN_ENCRYPTION_KEY:-}
+      WB_API_TOKEN: ${WB_API_TOKEN:-}
       WB_ADS_TOKEN: ${WB_ADS_TOKEN:-}
       OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD}
     depends_on:
@@ -37,3 +39,4 @@ services:
     restart: unless-stopped
 volumes:
   clara-db:
+

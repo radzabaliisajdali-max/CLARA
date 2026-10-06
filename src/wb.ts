@@ -1,3 +1,5 @@
+import {registerWbCatalog} from './wb-catalog.js';
+import { wbConnection } from './wb-connection.js';
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -9,12 +11,15 @@ const campaigns=z.object({adverts:z.array(z.object({type:z.number(),status:z.num
 const stats=z.array(z.object({advertId:z.number().int().positive(),views:z.number().nonnegative().optional(),clicks:z.number().nonnegative().optional(),atbs:z.number().nonnegative().optional(),orders:z.number().nonnegative().optional(),sum:z.number().nonnegative().optional(),sum_price:z.number().nonnegative().optional()}).passthrough());
 
 export function registerWb(app:FastifyInstance,db:DB,options:{token?:string,fetcher?:typeof fetch}={}) {
- const token=options.token??process.env.WB_ADS_TOKEN??'';
+ const connection=wbConnection(app,db,options.token??process.env.WB_API_TOKEN??process.env.WB_ADS_TOKEN??'');
  const fetcher=options.fetcher??fetch;
- const account=token?createHash('sha256').update(token).digest('hex').slice(0,24):'unconfigured';
- app.get('/api/v1/integrations',async()=>({wbAds:{configured:!!token,mode:'read-only',source:'WB API',liveVerified:false},wbFbs:{configured:false},wbAnalytics:{configured:false},marking:{configured:false}}));
+ registerWbCatalog(app,db,connection.getToken,fetcher);
+
+ app.get('/api/v1/integrations',async()=>({wb:{configured:await connection.configured(),storageReady:connection.storageReady()},wbAds:{configured:await connection.configured(),mode:'read-only',source:'WB API',liveVerified:false},wbFbs:{configured:false},wbAnalytics:{configured:false},marking:{configured:false}}));
  async function load(endpoint:string,params:Record<string,string>,user:string,parser:z.ZodType){
-  if(!token)throw new Problem(503,'Реклама WB не подключена. Владелец должен задать WB_ADS_TOKEN на сервере.');
+  const token=await connection.getToken();
+  const account=createHash('sha256').update(token).digest('hex').slice(0,24);
+  if(!token)throw new Problem(503,'WB не подключён. Владелец добавляет общий API-токен в разделе «Подключения».');
   const query=new URLSearchParams(params).toString();const key=account+':'+endpoint+'?'+query;
   const previous=(await db.query('SELECT payload,fetched_at FROM wb_snapshots WHERE cache_key=$1',[key])).rows[0];
   if(previous&&Date.now()-new Date(previous.fetched_at).getTime()<60000)return {data:previous.payload,fetchedAt:previous.fetched_at,cached:true,stale:false};
@@ -45,3 +50,4 @@ export function registerWb(app:FastifyInstance,db:DB,options:{token?:string,fetc
   return load('/adv/v3/fullstats',q,r.user.id,stats);
  });
 }
+

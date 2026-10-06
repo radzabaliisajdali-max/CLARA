@@ -155,3 +155,25 @@ test('CLARA: PostgreSQL, права, документы, конкурентно�
   }finally{await target.end();await env.db.query('DROP SCHEMA '+name+' CASCADE');}
  });
 });
+
+test('единый WB: владелец, шифрование, общий адаптер, отсутствие утечки',async()=>{
+ const old=process.env.WB_TOKEN_ENCRYPTION_KEY;process.env.WB_TOKEN_ENCRYPTION_KEY='a'.repeat(64);
+ const env=await database();const secret='test-wb-common-token-123456789';let received='';
+ const app=await buildApp(env.db,{wbFetch:async(_url,init)=>{received=(init?.headers as any).Authorization;if(String(_url).includes('cards/list'))return new Response(JSON.stringify({cards:[{nmID:11,vendorCode:'WB-TEST',title:'Сорочка',characteristics:[{name:'Цвет',value:['розовый']}],sizes:[{chrtID:22,techSize:'52',wbSize:'52',skus:['0123456789019']}]}],cursor:{total:1}}));return new Response(JSON.stringify({all:0,adverts:[]}),{status:200});}});
+ try{
+  const login=await app.inject({method:'POST',url:'/api/v1/auth/login',headers:{origin:'http://localhost:3000'},payload:{login:'owner',password:'test-password-12345'}});
+  const headers={origin:'http://localhost:3000',cookie:String(login.headers['set-cookie']).split(';')[0],'x-csrf-token':login.json().csrf};
+  const saved=await app.inject({method:'PUT',url:'/api/v1/integrations/wb',headers,payload:{token:secret}});assert.equal(saved.statusCode,200,saved.body);assert.ok(!saved.body.includes(secret));
+  assert.ok(!(await env.db.query('SELECT encrypted_token FROM wb_connection')).rows[0].encrypted_token.includes(secret));
+  const report=await app.inject({method:'GET',url:'/api/v1/wb/ads/campaigns',headers});assert.equal(report.statusCode,200,report.body);assert.equal(received,secret);
+  const info=await app.inject({method:'GET',url:'/api/v1/integrations',headers});assert.equal(info.json().wb.configured,true);assert.ok(!info.body.includes(secret));
+  const sync=await app.inject({method:'POST',url:'/api/v1/wb/catalog/sync',headers,payload:{}});assert.equal(sync.statusCode,200,sync.body);assert.equal(sync.json().created,1);
+  await env.db.query("UPDATE wb_request_limits SET next_at=now()-interval '1 minute'");
+  const repeat=await app.inject({method:'POST',url:'/api/v1/wb/catalog/sync',headers,payload:{}});assert.equal(repeat.json().created,0);
+  assert.equal((await env.db.query('SELECT physical FROM balances')).rows[0].physical,0);
+  const dump=await backup(env.db);assert.ok(!JSON.stringify(dump).includes(secret));
+  await env.db.query("UPDATE users SET role='operator' WHERE login='owner'");
+  assert.equal((await app.inject({method:'PUT',url:'/api/v1/integrations/wb',headers,payload:{token:secret}})).statusCode,403);
+ }finally{await app.close();await env.stop();if(old===undefined)delete process.env.WB_TOKEN_ENCRYPTION_KEY;else process.env.WB_TOKEN_ENCRYPTION_KEY=old;}
+});
+

@@ -1,5 +1,5 @@
 export const menuGroups=[
- ['Рабочий день',['home']],['Товары',['products']],['Производство',['production']],
+ ['Рабочий день',['home']],['Товары',['wbCatalog','products']],['Производство',['production']],
  ['Наш склад',['stock','receipt','reservations','adjustments','movements','reconciliation']],['Wildberries',['fbs','returns']],
  ['Аналитика и рост',['analytics','ads','seo','competitors']],['Финансы',['finance']],
  ['Управление',['connections','users','audit','import']]
