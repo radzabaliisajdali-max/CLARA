@@ -125,6 +125,24 @@ test('CLARA: PostgreSQL, права, документы, конкурентно�
   assert.deepEqual(await ok('/stock/reconciliation'),[]);
   const exported=await call('/exports/production');assert.equal(exported.statusCode,200,exported.body);const book=new ExcelJS.Workbook();await book.xlsx.load(exported.rawPayload as any);assert.equal(book.worksheets[0].getRow(2).getCell(9).value,'3.500');
  });
+ await t.test('WB реклама: только чтение, валидация, кэш, лимиты и сохранение при ошибке',async()=>{
+  assert.equal((await ok('/integrations')).wbAds.configured,false);
+  assert.equal((await call('/wb/ads/campaigns')).statusCode,503);
+  const calls:string[]=[];let fail=false;
+  const remote=async(input:any,init:any)=>{const url=String(input);calls.push(url);assert.equal(init.method,'GET');assert.equal(init.headers.Authorization,'test-wb-secret');if(fail)return new Response('denied',{status:401});return new Response(JSON.stringify(url.includes('promotion/count')?{all:1,adverts:[{type:9,status:9,advert_list:[{advertId:123}]}]}:[{advertId:123,sum:50,views:100,clicks:10,orders:2,sum_price:1000}]),{status:200});};
+  const wb=await buildApp(env.db,{wbToken:'test-wb-secret',wbFetch:remote as typeof fetch});
+  const get=(url:string)=>wb.inject({url:'/api/v1'+url,headers});
+  try{
+   const list=await get('/wb/ads/campaigns');assert.equal(list.statusCode,200,list.body);assert.equal(list.json().data[0].id,123);assert.ok(!list.body.includes('test-wb-secret'));
+   assert.equal((await get('/wb/ads/campaigns')).json().cached,true);assert.equal(calls.length,1);
+   const query='/wb/ads/statistics?ids=123&beginDate=2026-10-01&endDate=2026-10-05';const report=await get(query);assert.equal(report.statusCode,200,report.body);assert.equal(report.json().data[0].sum,50);
+   assert.equal((await get('/wb/ads/statistics?ids=123&beginDate=2026-01-01&endDate=2026-10-05')).statusCode,400);
+   assert.equal((await get('/wb/ads/statistics?ids=124&beginDate=2026-10-01&endDate=2026-10-05')).statusCode,429);
+   await env.db.query("UPDATE wb_snapshots SET fetched_at=now()-interval '2 minutes'");await env.db.query("UPDATE wb_request_limits SET next_at=now()-interval '1 minute'");fail=true;
+   const stale=await get(query);assert.equal(stale.json().stale,true);assert.equal(stale.json().data[0].sum,50);assert.match(stale.json().message,/доступ/);
+   assert.ok(calls.every(url=>url.startsWith('https://advert-api.wildberries.ru/adv/')));
+  }finally{await wb.close();}
+ });
  await t.test('резервная копия и восстановление в пустую схему PostgreSQL, последовательности и защита от перезаписи',async()=>{
   const dump=await backup(env.db);const name='restore_'+randomUUID().replaceAll('-','');await env.db.query('CREATE SCHEMA '+name);
   const url=new URL(env.url);url.searchParams.set('options','-c search_path='+name);const target=makePool(url.href);

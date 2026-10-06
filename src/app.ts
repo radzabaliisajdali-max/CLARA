@@ -1,3 +1,4 @@
+import { registerWb } from './wb.js';
 import { registerProduction, productionQuery } from './production.js';
 import Fastify, { type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -21,7 +22,7 @@ const owner=(r:FastifyRequest)=>{if(r.user.role!=='owner')throw new Problem(403,
 const idParam=(r:FastifyRequest)=>uuid.parse((r.params as any).id);
 const inventory=`SELECT v.id,v.product_id,p.article,p.name,v.color,v.size,v.gtin,v.cost,b.physical,b.reserved,(b.physical-b.reserved) AS available,b.transit,b.wb,b.defect FROM variants v JOIN products p ON p.id=v.product_id JOIN balances b ON b.variant_id=v.id`;
 const movementQuery=`SELECT d.id AS document_id,d.number,d.kind,d.reason,d.reference,d.created_at,u.name AS author,p.article,v.color,v.size,v.gtin,m.physical,m.reserved,m.transit,m.wb,m.defect,d.reverses_id,(SELECT id FROM documents WHERE reverses_id=d.id) AS reversed_by FROM movements m JOIN documents d ON d.id=m.document_id JOIN users u ON u.id=d.user_id JOIN variants v ON v.id=m.variant_id JOIN products p ON p.id=v.product_id`;
-export async function buildApp(db:DB,options:{origin?:string,secure?:boolean,logger?:boolean}={}) {
+export async function buildApp(db:DB,options:{origin?:string,secure?:boolean,logger?:boolean,wbToken?:string,wbFetch?:typeof fetch}={}) {
  const app=Fastify({logger:options.logger??false,bodyLimit:1048576,ajv:{customOptions:{coerceTypes:false}}});
  const origin=options.origin??process.env.APP_ORIGIN??'http://localhost:3000';
  const secure=options.secure??process.env.COOKIE_SECURE==='true';
@@ -50,6 +51,7 @@ export async function buildApp(db:DB,options:{origin?:string,secure?:boolean,log
  app.setErrorHandler((error,req,reply)=>{
   if(error instanceof z.ZodError) return reply.code(400).send({message:'Проверьте поля: '+error.issues.map(i=>i.path.join('.')+' — '+i.message).join('; ')});
   const e=error as any;
+  if(error instanceof Problem) return reply.code(error.statusCode).send({message:error.message});
   if(e.code==='23505') return reply.code(409).send({message:'Такой артикул, GTIN, вариант или логин уже существует'});
   if(e.code==='23503') return reply.code(404).send({message:'Связанная запись не найдена'});
   if(e.statusCode && e.statusCode<500) return reply.code(e.statusCode).send({message:e.message});
@@ -137,7 +139,7 @@ export async function buildApp(db:DB,options:{origin?:string,secure?:boolean,log
   const buffer=await book.xlsx.writeBuffer();
   reply.header('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').header('Content-Disposition',`attachment; filename="CLARA-${kind}.xlsx"`);return Buffer.from(buffer);
  });
- registerProduction(app,db);
+ registerProduction(app,db); registerWb(app,db,{token:options.wbToken,fetcher:options.wbFetch});
  await app.register(staticFiles,{root:resolve('public'),prefix:'/'});
  return app;
 }

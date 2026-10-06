@@ -17,12 +17,14 @@ services:
     ports: ["127.0.0.1:3000:3000"]
     environment:
       PGHOST: db
+      HOST: 0.0.0.0
       PGUSER: clara
       PGDATABASE: clara
       PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       OWNER_LOGIN: ${OWNER_LOGIN:-ali}
+      WB_ADS_TOKEN: ${WB_ADS_TOKEN:-}
       OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD}
     depends_on:
       db: {condition: service_healthy}

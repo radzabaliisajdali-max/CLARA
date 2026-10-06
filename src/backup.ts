@@ -3,8 +3,8 @@ import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makePool, transaction, type DB } from './db.js';
 import { migrate } from './migrate.js';
-const tables=['users','products','variants','balances','documents','movements','audit_log','idempotency','production_plans','production_cuts','production_workers','production_events'] as const;
-const jsonColumns:Record<string,string[]>={audit_log:['old_value','new_value'],idempotency:['response']};
+const tables=['users','products','variants','balances','documents','movements','audit_log','idempotency','production_plans','production_cuts','production_workers','production_events','wb_snapshots'] as const;
+const jsonColumns:Record<string,string[]>={wb_snapshots:['payload'],audit_log:['old_value','new_value'],idempotency:['response']};
 export async function backup(db:DB) {
  return transaction(db,async tx=>{
   await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
