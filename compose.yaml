@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: clara
+      POSTGRES_DB: clara
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - clara-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clara -d clara"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+  app:
+    build: .
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      PGHOST: db
+      HOST: 0.0.0.0
+      PGUSER: clara
+      PGDATABASE: clara
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      OWNER_LOGIN: ${OWNER_LOGIN:-ali}
+      WB_TOKEN_ENCRYPTION_KEY: ${WB_TOKEN_ENCRYPTION_KEY:-}
+      WB_API_TOKEN: ${WB_API_TOKEN:-}
+      WB_ADS_TOKEN: ${WB_ADS_TOKEN:-}
+      OWNER_PASSWORD: ${OWNER_PASSWORD:?Set OWNER_PASSWORD}
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      start_period: 10s
+      retries: 20
+    restart: unless-stopped
+volumes:
+  clara-db:
+

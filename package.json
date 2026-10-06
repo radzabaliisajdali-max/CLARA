@@ -1,0 +1,11 @@
+{
+  "name": "clara", "version": "5.0.0", "private": true, "type": "module",
+  "engines": { "node": ">=22" }, "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "build": "tsc", "start": "node dist/server.js", "dev": "tsx src/server.ts",
+    "migrate": "tsx src/migrate.ts", "bootstrap": "tsx src/bootstrap.ts",
+    "test": "tsx --test tests/integration.test.ts", "test:ui": "tsx tests/ui.ts"
+  },
+  "dependencies": { "fastify": "^5.6.0", "@fastify/cookie": "^11.0.2", "@fastify/static": "^8.3.0", "@fastify/rate-limit": "^10.3.0", "pg": "^8.16.3", "zod": "^4.1.0", "exceljs": "^4.4.0" },
+  "devDependencies": { "typescript": "^5.9.3", "tsx": "^4.20.0", "@types/node": "^22.18.0", "@types/pg": "^8.15.5", "embedded-postgres": "^17.6.0-beta.15", "playwright": "^1.55.0" }
+}
